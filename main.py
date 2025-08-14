@@ -1,15 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from cachetools import TTLCache
 import httpx
 
-app = FastAPI(title="AniList Recent Release API")
+app = FastAPI(title="AniList API")
 
-# Cache: max 100 öğe, 300 saniye (5 dk) TTL
 cache = TTLCache(maxsize=100, ttl=300)
 
 ANILIST_API_URL = "https://graphql.anilist.co"
 
-# AniList GraphQL sorgusu: Son çıkan bölümleri çekmek için
+# Recent releases query (önceki kod)
 QUERY_RECENT_RELEASES = """
 query ($page: Int, $perPage: Int) {
   Page(page: $page, perPage: $perPage) {
@@ -28,11 +27,30 @@ query ($page: Int, $perPage: Int) {
 }
 """
 
+# Search query
+QUERY_SEARCH = """
+query ($search: String, $page: Int, $perPage: Int) {
+  Page(page: $page, perPage: $perPage) {
+    media(search: $search, type: ANIME) {
+      id
+      title {
+        romaji
+        english
+      }
+      status
+      coverImage {
+        large
+      }
+    }
+  }
+}
+"""
+
 async def fetch_recent_releases():
     if "recent_releases" in cache:
         return cache["recent_releases"]
 
-    variables = {"page": 1, "perPage": 10}  # Son 10 anime
+    variables = {"page": 1, "perPage": 10}
     async with httpx.AsyncClient() as client:
         response = await client.post(
             ANILIST_API_URL,
@@ -46,7 +64,7 @@ async def fetch_recent_releases():
             "episodeId": anime["id"],
             "name": anime["title"]["romaji"] or anime["title"]["english"],
             "episodeNum": anime.get("episodes"),
-            "subOrDub": "Sub",  # AniList API sub/dub bilgisini vermiyor, default Sub
+            "subOrDub": "Sub",
             "imgUrl": anime["coverImage"]["large"]
         })
     
@@ -56,3 +74,33 @@ async def fetch_recent_releases():
 @app.get("/recent-release")
 async def recent_release():
     return await fetch_recent_releases()
+
+# ----------------- Yeni /search endpoint -----------------
+async def fetch_search(query: str):
+    cache_key = f"search_{query}"
+    if cache_key in cache:
+        return cache[cache_key]
+
+    variables = {"search": query, "page": 1, "perPage": 10}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            ANILIST_API_URL,
+            json={"query": QUERY_SEARCH, "variables": variables}
+        )
+        data = response.json()
+    
+    result = []
+    for anime in data.get("data", {}).get("Page", {}).get("media", []):
+        result.append({
+            "anime_id": anime["id"],
+            "name": anime["title"]["romaji"] or anime["title"]["english"],
+            "img_url": anime["coverImage"]["large"],
+            "status": anime["status"]
+        })
+
+    cache[cache_key] = result
+    return result
+
+@app.get("/search")
+async def search(query: str = Query(..., description="Anime adıyla arama")):
+    return await fetch_search(query)
