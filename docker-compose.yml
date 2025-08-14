@@ -1,0 +1,9 @@
+version: '3.9'
+
+services:
+  anilist-api:
+    build: .
+    container_name: anilist-api
+    ports:
+      - "3003:3003"
+    restart: unless-stopped
