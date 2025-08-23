@@ -1,9 +1,10 @@
-version: '3.9'
-
+version: '3.8'
 services:
-  anilist-api:
+  animeci-api:
     build: .
-    container_name: anilist-api
+    container_name: animeci-api
+    restart: unless-stopped
     ports:
       - "3003:3003"
-    restart: unless-stopped
+    environment:
+      - PORT=3003
